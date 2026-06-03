@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Hapi Player
+Comment=Lyrics follow-along player for dual-track audio
+Exec=Hapi_Player
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=true

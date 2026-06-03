@@ -16,20 +16,17 @@ use cpal::{
     FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
 };
 use eframe::egui::{
-    self, Align2, Button, CentralPanel, Color32, FontData, FontDefinitions, FontFamily, FontId,
-    Frame, Margin, Pos2, Rect, RichText, Rounding, Sense, Stroke, TopBottomPanel, Vec2,
-    ViewportBuilder,
+    self, Align2, Button, CentralPanel, Color32, CornerRadius, FontData, FontDefinitions,
+    FontFamily, FontId, Frame, Margin, Panel, Pos2, Rect, RichText, Sense, Stroke, StrokeKind,
+    Vec2, ViewportBuilder,
 };
 use encoding_rs::{Encoding, GB18030};
 use symphonia::core::{
-    audio::{AudioBufferRef, Signal},
-    codecs::DecoderOptions,
-    conv::FromSample as SymphoniaFromSample,
-    formats::FormatOptions,
+    audio::GenericAudioBufferRef,
+    codecs::audio::AudioDecoderOptions,
+    formats::{probe::Hint, FormatOptions, TrackType},
     io::MediaSourceStream,
     meta::MetadataOptions,
-    probe::Hint,
-    sample::Sample as SymphoniaSample,
 };
 
 const DEFAULT_WINDOW_WIDTH: f32 = 1040.0;
@@ -371,14 +368,14 @@ impl KaraokeApp {
 }
 
 impl eframe::App for KaraokeApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.request_repaint_after(Duration::from_millis(16));
-        self.handle_file_drop(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.ctx().request_repaint_after(Duration::from_millis(16));
+        self.handle_file_drop(ui.ctx());
         let text = self.language.text();
 
-        TopBottomPanel::top("toolbar")
-            .frame(Frame::none().fill(Color32::from_rgb(246, 247, 249)))
-            .show(ctx, |ui| {
+        Panel::top("toolbar")
+            .frame(Frame::new().fill(Color32::from_rgb(246, 247, 249)))
+            .show_inside(ui, |ui| {
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(8.0);
@@ -437,8 +434,8 @@ impl eframe::App for KaraokeApp {
             });
 
         CentralPanel::default()
-            .frame(Frame::none().fill(Color32::from_rgb(236, 239, 242)))
-            .show(ctx, |ui| {
+            .frame(Frame::new().fill(Color32::from_rgb(236, 239, 242)))
+            .show_inside(ui, |ui| {
                 ui.add_space(12.0);
                 self.draw_import_cards(ui);
                 ui.add_space(12.0);
@@ -449,7 +446,7 @@ impl eframe::App for KaraokeApp {
                 self.draw_lyrics(ui);
             });
 
-        self.draw_drop_overlay(ctx);
+        self.draw_drop_overlay(ui.ctx());
     }
 }
 
@@ -521,11 +518,11 @@ impl KaraokeApp {
         on_click: impl FnOnce(&mut Self),
     ) {
         let width = (ui.available_width() / 3.0 - 8.0).max(180.0);
-        let frame = Frame::none()
+        let frame = Frame::new()
             .fill(Color32::WHITE)
             .stroke(Stroke::new(1.0, Color32::from_rgb(214, 220, 226)))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(Margin::same(14.0));
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(Margin::same(14));
 
         let response = frame
             .show(ui, |ui| {
@@ -548,11 +545,11 @@ impl KaraokeApp {
 
     fn draw_status(&mut self, ui: &mut egui::Ui) {
         let text = self.language.text();
-        Frame::none()
+        Frame::new()
             .fill(Color32::WHITE)
             .stroke(Stroke::new(1.0, Color32::from_rgb(218, 224, 230)))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(Margin::same(12.0))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(Margin::same(12))
             .show(ui, |ui| {
                 let current = self.current_time();
                 let duration = self.total_duration();
@@ -838,12 +835,13 @@ impl KaraokeApp {
         let text = self.language.text();
         let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_overlay"));
         let painter = ctx.layer_painter(layer);
-        let rect = ctx.input(|input| input.screen_rect());
+        let rect = ctx.content_rect();
         painter.rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(22, 28, 36, 190));
         painter.rect_stroke(
             rect.shrink(28.0),
             12.0,
             Stroke::new(2.0, Color32::from_rgb(255, 209, 102)),
+            StrokeKind::Middle,
         );
         painter.text(
             rect.center(),
@@ -863,7 +861,7 @@ fn configure_chinese_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert(
         "system_chinese".to_owned(),
-        FontData::from_owned(font_bytes),
+        FontData::from_owned(font_bytes).into(),
     );
 
     fonts
@@ -881,16 +879,100 @@ fn configure_chinese_fonts(ctx: &egui::Context) {
 }
 
 fn load_system_chinese_font() -> Option<Vec<u8>> {
-    let candidates = [
+    chinese_font_candidates()
+        .into_iter()
+        .find_map(|path| std::fs::read(path).ok())
+}
+
+fn chinese_font_candidates() -> Vec<PathBuf> {
+    let mut paths = chinese_font_static_candidates();
+    paths.extend(chinese_font_user_candidates());
+    paths
+}
+
+#[cfg(target_os = "windows")]
+fn chinese_font_static_candidates() -> Vec<PathBuf> {
+    [
         r"C:\Windows\Fonts\msyh.ttc",
         r"C:\Windows\Fonts\msyh.ttf",
         r"C:\Windows\Fonts\simhei.ttf",
         r"C:\Windows\Fonts\simsun.ttc",
         r"C:\Windows\Fonts\Deng.ttf",
         r"C:\Windows\Fonts\NotoSansCJK-Regular.ttc",
-    ];
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
 
-    candidates.iter().find_map(|path| std::fs::read(path).ok())
+#[cfg(target_os = "macos")]
+fn chinese_font_static_candidates() -> Vec<PathBuf> {
+    [
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/System/Library/Fonts/Supplemental/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn chinese_font_static_candidates() -> Vec<PathBuf> {
+    [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf",
+        "/usr/share/fonts/opentype/source-han-sans/SourceHanSansCN-Regular.otf",
+        "/usr/share/fonts/opentype/adobe-source-han-sans/SourceHanSansCN-Regular.otf",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn chinese_font_user_candidates() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
+fn chinese_font_user_candidates() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+
+    let home = PathBuf::from(home);
+    [
+        home.join("Library/Fonts/NotoSansCJK-Regular.ttc"),
+        home.join("Library/Fonts/NotoSansSC-Regular.otf"),
+    ]
+    .into_iter()
+    .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn chinese_font_user_candidates() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+
+    let home = PathBuf::from(home);
+    [
+        home.join(".local/share/fonts/NotoSansCJK-Regular.ttc"),
+        home.join(".local/share/fonts/NotoSansSC-Regular.otf"),
+        home.join(".fonts/NotoSansCJK-Regular.ttc"),
+    ]
+    .into_iter()
+    .collect()
 }
 
 #[derive(Clone)]
@@ -937,7 +1019,7 @@ impl AudioPlayer {
             .default_output_device()
             .ok_or_else(|| anyhow!("No default output device found"))?;
         let supported_config = device.default_output_config()?;
-        let output_rate = supported_config.sample_rate().0;
+        let output_rate = supported_config.sample_rate();
         let stream_config: StreamConfig = supported_config.clone().into();
         let output_channels = stream_config.channels as usize;
 
@@ -1027,19 +1109,20 @@ where
         return;
     }
 
-    let mut frame = state.frame_position.load(Ordering::SeqCst);
+    let frame = state.frame_position.load(Ordering::SeqCst);
     let total_frames = output.len() / state.output_channels.max(1);
+    let channels = state.output_channels.max(1);
 
-    for frame_samples in output.chunks_mut(state.output_channels.max(1)) {
+    for (offset, frame_samples) in output.chunks_mut(channels).enumerate() {
+        let current_frame = frame + offset as u64;
         for (channel, sample) in frame_samples.iter_mut().enumerate() {
             let mut mixed = 0.0;
             for track in &state.tracks {
-                mixed += sample_at(track, frame, channel, state.output_rate);
+                mixed += sample_at(track, current_frame, channel, state.output_rate);
             }
             mixed = (mixed * 0.55).clamp(-1.0, 1.0);
             *sample = T::from_sample(mixed);
         }
-        frame += 1;
     }
 
     state
@@ -1201,44 +1284,49 @@ fn decode_track(path: &Path) -> Result<Track> {
         hint.with_extension(extension);
     }
 
-    let probed = symphonia::default::get_probe().format(
+    let mut format = symphonia::default::get_probe().probe(
         &hint,
         mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
+        FormatOptions::default(),
+        MetadataOptions::default(),
     )?;
-    let mut format = probed.format;
-    let track = format
-        .tracks()
-        .iter()
-        .find(|track| track.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
-        .ok_or_else(|| anyhow!("No decodable audio track found"))?
-        .clone();
 
-    let sample_rate = track
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or_else(|| anyhow!("No decodable audio track found"))?;
+
+    let audio_params = track
         .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .ok_or_else(|| anyhow!("Unable to read audio codec parameters"))?;
+
+    let sample_rate = audio_params
         .sample_rate
         .ok_or_else(|| anyhow!("Unable to detect sample rate"))?;
-    let channels = track
-        .codec_params
+    let channels = audio_params
         .channels
+        .as_ref()
         .ok_or_else(|| anyhow!("Unable to detect channel count"))?
         .count()
         .max(1);
 
-    let mut decoder =
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let track_id = track.id;
+
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(audio_params, &AudioDecoderOptions::default())?;
 
     let mut samples = Vec::new();
 
-    while let Ok(packet) = format.next_packet() {
-        if packet.track_id() != track.id {
+    while let Some(packet) = format.next_packet()? {
+        if packet.track_id != track_id {
             continue;
         }
 
         let decoded = match decoder.decode(&packet) {
             Ok(decoded) => decoded,
             Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
+            Err(symphonia::core::errors::Error::IoError(_)) => continue,
             Err(err) => return Err(err.into()),
         };
 
@@ -1259,37 +1347,19 @@ fn decode_track(path: &Path) -> Result<Track> {
     })
 }
 
-fn append_audio_buffer(decoded: &AudioBufferRef<'_>, channels: usize, samples: &mut Vec<f32>) {
-    match decoded {
-        AudioBufferRef::F32(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::U8(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::U16(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::U24(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::U32(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::S8(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::S16(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::S24(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::S32(buffer) => append_typed_buffer(buffer, channels, samples),
-        AudioBufferRef::F64(buffer) => append_typed_buffer(buffer, channels, samples),
-    }
-}
-
-fn append_typed_buffer<S>(
-    buffer: &symphonia::core::audio::AudioBuffer<S>,
+fn append_audio_buffer(
+    decoded: &GenericAudioBufferRef<'_>,
     channels: usize,
     samples: &mut Vec<f32>,
-) where
-    S: SymphoniaSample,
-    f32: SymphoniaFromSample<S>,
-{
-    let frames = buffer.frames();
-    let spec_channels = buffer.spec().channels.count().max(1);
-    for frame in 0..frames {
+) {
+    let spec_channels = decoded.spec().channels().count().max(1);
+    let mut interleaved = Vec::new();
+    decoded.copy_to_vec_interleaved(&mut interleaved);
+
+    for frame in 0..decoded.frames() {
         for channel in 0..channels {
             let source_channel = channel.min(spec_channels - 1);
-            samples.push(<f32 as SymphoniaFromSample<S>>::from_sample(
-                buffer.chan(source_channel)[frame],
-            ));
+            samples.push(interleaved[frame * spec_channels + source_channel]);
         }
     }
 }

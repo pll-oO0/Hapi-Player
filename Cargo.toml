@@ -1,13 +1,21 @@
+[workspace]
+members = ["xtask"]
+resolver = "2"
+
 [package]
 name = "lyrics_follow_player"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "lyrics_follow_player"
+path = "main.rs"
+
 [dependencies]
 anyhow = "1"
-cpal = "0.15"
-eframe = "0.28"
-egui = "0.28"
+cpal = "0.17"
+eframe = "0.34"
+egui = "0.34"
 encoding_rs = "0.8"
-rfd = "0.14"
-symphonia = { version = "0.5", features = ["aac", "alac", "flac", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav"] }
+rfd = "0.17"
+symphonia = { version = "0.6", features = ["aac", "alac", "flac", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav"] }
